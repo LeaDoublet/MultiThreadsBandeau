@@ -1,7 +1,8 @@
 package bandeau;
 import java.util.List;
-import java.util.LinkedList;
+import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.LinkedList;
 
 /**
  * Classe utilitaire pour représenter la classe-association UML
@@ -23,7 +24,9 @@ class ScenarioElement {
 public class Scenario {
 
     private final List<ScenarioElement> myElements = new LinkedList<>();
-    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    private final ReentrantReadWriteLock rwl = new ReentrantReadWriteLock();
+    private final Lock r = rwl.readLock();
+    private final Lock w = rwl.writeLock();
     /**
      * Ajouter un effect au scenario.
      *
@@ -31,13 +34,9 @@ public class Scenario {
      * @param repeats le nombre de répétitions pour cet effet
      */
     public void addEffect(Effect e, int repeats) {
-        lock.writeLock().lock(); //verrouillage en ecriture
-        try{
+        w.lock(); try{
             myElements.add(new ScenarioElement(e, repeats));
-        }finally {
-            lock.writeLock().unlock(); // deverouillage
-        }
-
+        }finally{w.unlock();}
     }
 
     /**
@@ -45,17 +44,24 @@ public class Scenario {
      *
      * @param b le bandeau ou s'afficher.
      */
-    public void playOn(Bandeau b) {
-        lock.readLock().lock();
-        try{
-            for (ScenarioElement element : myElements) {
-                for (int repeats = 0; repeats < element.repeats; repeats++) {
-                    element.effect.playOn(b);
-                }
-            }
-        }finally {
-            lock.readLock().unlock(); // deverouillage
-        }
+    public void playOn(ThreadSafeBandeau b){
+        r.lock(); try {
+            //On crée un thread
+            Thread t = new Thread(
+                    () -> {
+                        //On bloque le bandeau au lancement du scénario
+                        b.verrouille();
+                        for (ScenarioElement element : myElements) {
+                            for (int repeats = 0; repeats < element.repeats; repeats++) {
+                                element.effect.playOn(b);
+                            }
+                        }
+                        //Apres avoir fini le scenario on deverrouille le bandeau
+                        b.deverrouille();
+                    }
+            );
+            t.start();
+        } finally { r.unlock(); }
 
     }
 }
